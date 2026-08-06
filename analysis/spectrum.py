@@ -131,3 +131,28 @@ def calculate_bandwidth(freqs_valid, fft_norm, fft_dB, thresholds=None, fmin=Non
             f'{th_name}_center_dB': center_dB,
         })
     return results
+
+def extract_bandwidth_metrics(signals_win, time_win_us, max_freq, zero_padding, threshold='3dB'):
+    """
+    对多条信号（窗口内）进行复数平均后，计算指定阈值的带宽指标。
+    返回: (peak_freq_mhz, center_freq_mhz, relative_bw_percent)
+    若计算失败返回 (np.nan, np.nan, np.nan)
+    """
+    from .spectrum import average_spectrum_complex, calculate_bandwidth  # 内部导入
+    fft_avg = average_spectrum_complex(signals_win, time_win_us, max_freq, zero_padding)
+    bw = calculate_bandwidth(
+        fft_avg['freqs_valid'],
+        fft_avg['fft_norm'],
+        fft_avg['fft_dB'],
+        thresholds={threshold: 1/np.sqrt(2)} if threshold == '3dB' else {},
+        fmin=None
+    )
+    if '3dB_bw' not in bw or bw['3dB_bw'] is None:
+        return np.nan, np.nan, np.nan
+    fc = bw.get('3dB_center_hz')
+    if fc is None or fc <= 0:
+        return np.nan, np.nan, np.nan
+    peak_freq_mhz = bw.get('peak_freq_mhz', np.nan)
+    fc_mhz = fc / 1e6
+    rel_bw = (bw['3dB_bw'] / fc) * 100
+    return peak_freq_mhz, fc_mhz, rel_bw
