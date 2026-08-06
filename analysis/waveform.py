@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.signal import hilbert
+from scipy.ndimage import label, find_objects
 
 def remove_dc_offset(signals, time_us, baseline_region=(0, 1)):
     """
@@ -36,3 +38,27 @@ def compute_vpp(signal):
 
 def compute_mean_std(signals, axis=0):
     return np.mean(signals, axis=axis), np.std(signals, axis=axis)
+
+def compute_envelope(signal):
+    """计算信号的包络（Hilbert变换）"""
+    return np.abs(hilbert(signal))
+
+def pulse_duration(time_us, envelope, threshold_dB):
+    """
+    计算脉冲宽度（以包络低于 threshold_dB 为界）
+    返回宽度 (μs)，若无有效区域则返回 None
+    """
+    peak = np.max(envelope)
+    threshold = peak * 10 ** (threshold_dB / 20)
+    above = envelope >= threshold
+    if not np.any(above):
+        return None
+    labeled, ncomp = label(above)
+    slices = find_objects(labeled)
+    max_len = 0
+    for sl in slices:
+        region = above[sl]
+        if np.sum(region) > max_len:
+            max_len = np.sum(region)
+    dt = time_us[1] - time_us[0]
+    return max_len * dt
