@@ -12,11 +12,10 @@ from batch.csv_folder_analyzer import CSVBatchAnalyzer
 
 # ==================== 配置参数 =====================
 CONFIG = {
-    'folder_1cycle': r'Y:\Measurements\2026\L_sweep_Tx对称性_20260708\1cycle-sine-20MHz',
-    'folder_3cycle': r'Y:\Measurements\2026\L_sweep_Tx对称性_20260708\1cycle-sine-20MHz',
+    'folder_path': r'Y:\Measurements\2026\L_sweep_Tx对称性_20260708\1cycle-sine-20MHz',
     'die_id': 'STB3SP11W00_R3C0_L',
-    'window_1cycle': (6.5, 8.0),
-    'window_3cycle': (6.5, 8.0),
+    'window_freq': (6.5, 8.0),     # 频域窗口 (μs)
+    'window_time': (6.5, 8.0),     # 时域窗口 (μs)
     'fft_max_freq': 30e6,
     'fft_zero_padding': 4,
     'output_dir': r'Y:\Measurements\2026\L_sweep_Tx对称性_20260708\1cycle-sine-20MHz',
@@ -27,5 +26,3 @@ CONFIG = {
 if __name__ == "__main__":
     analyzer = CSVBatchAnalyzer(CONFIG)
     results = analyzer.run()
-if __name__ == "__main__":
-    main()
