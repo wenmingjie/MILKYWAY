@@ -1,10 +1,10 @@
 """
-CSV 文件夹批量分析器
-====================
+CSV 文件夹批量分析器（单文件夹版）
+================================
 功能：
-1. 从两个文件夹分别加载所有 CSV 文件（频域/时域）
-2. 对频域文件夹所有信号做 FFT 复数平均
-3. 对时域文件夹所有信号取时域平均
+1. 从指定文件夹加载所有 CSV 文件
+2. 频域处理：对所有信号做 FFT 复数平均
+3. 时域处理：对所有信号取时域平均
 4. 计算时域参数（Vpp, 包络, 脉冲宽度）
 5. 计算频域参数（Fc, BW, HD2）
 6. 绘制双轴叠加图（含信息框）
@@ -14,7 +14,7 @@ import os
 import numpy as np
 
 # 公共模块
-from io.csv_io import load_csv_signals, load_csv_average
+from io.csv_io import load_csv_signals
 from analysis.waveform import remove_dc_offset, apply_time_window, compute_envelope, pulse_duration
 from analysis.spectrum import average_spectrum_complex, calculate_bandwidth
 from plot.figure import plot_time_freq_dual_axis_with_boxes
@@ -22,17 +22,16 @@ from plot.style import set_style
 
 
 class CSVBatchAnalyzer:
-    """CSV 文件夹批量分析器"""
+    """CSV 文件夹批量分析器（单文件夹）"""
 
     def __init__(self, config):
         """
         参数:
             config: dict，包含：
-                - folder_1cycle: 频域 CSV 文件夹路径
-                - folder_3cycle: 时域 CSV 文件夹路径
+                - folder_path: CSV 文件夹路径（频域和时域共用）
                 - die_id: 器件 ID（用于标题）
-                - window_1cycle: (start, end) μs
-                - window_3cycle: (start, end) μs
+                - window_freq: 频域窗口 (start, end) μs
+                - window_time: 时域窗口 (start, end) μs
                 - fft_max_freq: FFT 最大频率 (Hz)
                 - fft_zero_padding: 零填充倍数
                 - output_dir: 输出目录
@@ -49,39 +48,41 @@ class CSVBatchAnalyzer:
         print("CSV 文件夹批量分析（频域复数平均 + 时域平均）")
         print("="*60)
 
-        # 1. 加载数据
-        signals1, time1 = load_csv_signals(self.config['folder_1cycle'])
-        sig3_avg, time3 = load_csv_average(self.config['folder_3cycle'])
-        if signals1 is None or sig3_avg is None:
+        folder = self.config['folder_path']
+        print(f"数据文件夹: {folder}")
+
+        # 1. 加载所有信号（频域和时域共用同一份数据）
+        signals, time_us = load_csv_signals(folder)
+        if signals is None:
             print("数据加载失败")
             return
 
-        print(f"频域信号数量: {signals1.shape[0]}")
-        print(f"时域信号数量: {sig3_avg.shape[0]}")
+        print(f"加载信号数量: {signals.shape[0]}")
+        print(f"每条信号采样点数: {signals.shape[1]}")
 
-        # 2. 去直流（时域）
-        sig3_avg = remove_dc_offset(sig3_avg, time3)
+        # 2. 时域信号：所有信号平均，然后去直流、截窗
+        sig_time_avg = np.mean(signals, axis=0)
+        sig_time_avg = remove_dc_offset(sig_time_avg, time_us)
+        sig_time_win, time_win = apply_time_window(
+            sig_time_avg, time_us, self.config['window_time']
+        )
 
-        # 3. 应用窗口
-        # 频域：所有信号分别截窗
-        signals1_win = []
-        time1_win = None
-        for sig in signals1:
-            sig_win, t_win = apply_time_window(sig, time1, self.config['window_1cycle'])
-            signals1_win.append(sig_win)
-            if time1_win is None:
-                time1_win = t_win
-        signals1_win = np.array(signals1_win)
-
-        # 时域：平均信号截窗
-        sig3_win, time3_win = apply_time_window(sig3_avg, time3, self.config['window_3cycle'])
+        # 3. 频域信号：所有信号分别去直流、截窗、做 FFT，然后复数平均
+        signals_freq = []
+        for sig in signals:
+            sig_corr = remove_dc_offset(sig, time_us)
+            sig_win, _ = apply_time_window(sig_corr, time_us, self.config['window_freq'])
+            signals_freq.append(sig_win)
+        signals_freq = np.array(signals_freq)
+        # 使用截窗后的时间轴（所有信号相同）
+        _, time_freq_win = apply_time_window(time_us, time_us, self.config['window_freq'])
 
         # 4. 时域参数
-        vpp = np.max(sig3_win) - np.min(sig3_win)
-        peak_voltage = np.max(np.abs(sig3_win))
-        env = compute_envelope(sig3_win)
-        dur_6dB = pulse_duration(time3_win, env, -6)
-        dur_20dB = pulse_duration(time3_win, env, -20)
+        vpp = np.max(sig_time_win) - np.min(sig_time_win)
+        peak_voltage = np.max(np.abs(sig_time_win))
+        env = compute_envelope(sig_time_win)
+        dur_6dB = pulse_duration(time_win, env, -6)
+        dur_20dB = pulse_duration(time_win, env, -20)
 
         dur6_str = "N/A" if dur_6dB is None else f"{dur_6dB:.2f}"
         dur20_str = "N/A" if dur_20dB is None else f"{dur_20dB:.2f}"
@@ -93,7 +94,7 @@ class CSVBatchAnalyzer:
 
         # 5. 频域参数（复数平均）
         fft_avg = average_spectrum_complex(
-            signals1_win, time1_win,
+            signals_freq, time_freq_win,
             self.config['fft_max_freq'],
             self.config['fft_zero_padding']
         )
@@ -137,8 +138,8 @@ class CSVBatchAnalyzer:
                                  f"{self.config['die_id']}_avg_spectrum.png")
 
         fig, _, _ = plot_time_freq_dual_axis_with_boxes(
-            time_us=time3_win,
-            signal=sig3_win,
+            time_us=time_win,
+            signal=sig_time_win,
             freqs_mhz=fft_avg['freqs_valid_mhz'],
             spectrum_dB=fft_avg['fft_dB'],
             peak_freq_mhz=peak_freq_mhz,
@@ -161,7 +162,7 @@ class CSVBatchAnalyzer:
         print(f"  -20dB Width = {dur20_str} μs")
 
         print("\n【频域参数】")
-        print(f"  信号数量 = {signals1_win.shape[0]}")
+        print(f"  信号数量 = {signals_freq.shape[0]}")
         print(f"  Peak freq. = {peak_freq_mhz:.3f} MHz")
         if center_hz:
             print(f"  Center freq. = {center_hz/1e6:.3f} MHz")
